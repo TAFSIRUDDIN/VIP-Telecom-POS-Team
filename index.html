@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<title>Barcode Scanner → Google Sheets</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f0f0ee;--card:#fff;--border:rgba(0,0,0,0.10);--bmd:rgba(0,0,0,0.20);
+  --text:#1a1a1a;--muted:#6b6b68;
+  --teal:#1D9E75;--teal-dk:#0F6E56;--teal-lt:#EAF3DE;--teal-tx:#27500A;
+  --amber-lt:#FAEEDA;--amber-tx:#854F0B;
+  --red-lt:#FCEBEB;--red-tx:#A32D2D;
+  --r:12px;--rs:8px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:4rem}
+header{background:var(--card);border-bottom:1px solid var(--border);padding:.85rem 1rem;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:20;box-shadow:0 1px 6px rgba(0,0,0,.07)}
+.hico{width:38px;height:38px;border-radius:10px;background:var(--teal);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.hico svg{width:22px;height:22px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+header h1{font-size:16px;font-weight:700}
+header p{font-size:12px;color:var(--muted)}
+.wrap{max-width:480px;margin:0 auto;padding:1rem .9rem}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:1rem 1.1rem;margin-bottom:.85rem}
+.slabel{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:.6rem}
+input{width:100%;height:42px;border:1px solid var(--bmd);border-radius:var(--rs);padding:0 12px;font-size:14px;color:var(--text);background:#fff;outline:none;transition:border-color .15s,box-shadow .15s;-webkit-appearance:none;appearance:none}
+input:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(29,158,117,.13)}
+input::placeholder{color:#aaa}
+input.error{border-color:#E24B4A;box-shadow:0 0 0 3px rgba(226,75,74,.13)}
+.url-row{display:flex;gap:7px}
+.url-row input{flex:1}
+.sbtn{height:42px;padding:0 14px;background:var(--bg);border:1px solid var(--bmd);border-radius:var(--rs);font-size:13px;cursor:pointer;color:var(--text);white-space:nowrap;display:flex;align-items:center;gap:5px;font-weight:600;transition:background .15s}
+.sbtn:hover{background:#e4e4e2}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 10px;border-radius:99px;margin-top:8px;font-weight:500}
+.badge.ok{background:var(--teal-lt);color:var(--teal-tx)}
+.badge.warn{background:var(--amber-lt);color:var(--amber-tx)}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0}
+
+/* SCANNER */
+.scan-outer{background:#000;border-radius:var(--rs);overflow:hidden;position:relative;width:100%;aspect-ratio:4/3}
+#interactive{width:100%;height:100%;position:relative}
+#interactive video{width:100% !important;height:100% !important;object-fit:cover !important;position:absolute;top:0;left:0;display:block}
+#interactive canvas.drawingBuffer{display:none !important}
+.scan-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;z-index:5}
+.scan-frame{width:65%;aspect-ratio:1;position:relative;border:2px solid var(--teal);border-radius:10px}
+.scan-frame::before,.scan-frame::after{content:'';position:absolute;width:18px;height:18px;border-color:#fff;border-style:solid;border-width:0}
+.scan-frame::before{top:-1px;left:-1px;border-top-width:3px;border-left-width:3px;border-radius:4px 0 0 0}
+.scan-frame::after{top:-1px;right:-1px;border-top-width:3px;border-right-width:3px;border-radius:0 4px 0 0}
+.scan-frame .b3{position:absolute;width:18px;height:18px;border-color:#fff;border-style:solid;border-width:0;bottom:-1px;left:-1px;border-bottom-width:3px;border-left-width:3px;border-radius:0 0 0 4px}
+.scan-frame .b4{position:absolute;width:18px;height:18px;border-color:#fff;border-style:solid;border-width:0;bottom:-1px;right:-1px;border-bottom-width:3px;border-right-width:3px;border-radius:0 0 4px 0}
+.scanline{position:absolute;left:4px;right:4px;height:2px;background:var(--teal);top:20%;animation:sl 2s ease-in-out infinite}
+@keyframes sl{0%,100%{top:10%}50%{top:85%}}
+.scan-tip{color:rgba(255,255,255,.8);font-size:12px;margin-top:14px;text-align:center;padding:0 1rem}
+.placeholder-screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#111;color:rgba(255,255,255,.45);gap:10px;font-size:14px;z-index:2}
+.placeholder-screen svg{width:48px;height:48px;stroke:rgba(255,255,255,.3);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.cam-btn{width:100%;margin-top:10px;padding:13px;border-radius:var(--rs);font-size:15px;font-weight:600;cursor:pointer;border:none;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s,transform .1s}
+.cam-btn:active{transform:scale(.98)}
+.cam-btn.start{background:var(--teal);color:#fff}
+.cam-btn.start:hover{background:var(--teal-dk)}
+.cam-btn.stop{background:var(--red-lt);color:var(--red-tx);border:1px solid #F09595}
+.det-bar{background:var(--teal-lt);border:1px solid #97C459;border-radius:var(--rs);padding:10px 13px;display:flex;align-items:center;gap:10px;margin-top:10px}
+.det-bar svg{width:24px;height:24px;stroke:var(--teal-tx);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.det-code{font-size:16px;font-weight:700;color:var(--teal-tx);letter-spacing:.04em}
+.det-sub{font-size:11px;color:#3B6D11;margin-top:2px}
+
+/* FORM */
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:.8rem}
+.field{display:flex;flex-direction:column;gap:4px}
+.field.full{grid-column:1/-1}
+.field label{font-size:12px;color:var(--muted);font-weight:500}
+.req{color:#E24B4A;margin-left:2px}
+.err-msg{font-size:11px;color:#E24B4A;margin-top:2px;display:none}
+.err-msg.show{display:block}
+.total-row{background:var(--bg);border-radius:var(--rs);padding:12px 14px;display:flex;justify-content:space-between;align-items:center;margin-top:2px}
+.total-lbl{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.total-lbl svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.total-val{font-size:24px;font-weight:700}
+.submit{width:100%;padding:14px;margin-top:12px;background:var(--teal);color:#fff;border:none;border-radius:var(--rs);font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s,transform .1s}
+.submit:hover{background:var(--teal-dk)}
+.submit:active{transform:scale(.98)}
+.submit:disabled{background:#9FE1CB;cursor:not-allowed}
+.toast-area{min-height:40px;margin-top:8px}
+.tmsg{padding:10px 14px;border-radius:var(--rs);font-size:13px;font-weight:500;display:flex;align-items:center;gap:7px}
+.tmsg.success{background:var(--teal-lt);color:var(--teal-tx)}
+.tmsg.error{background:var(--red-lt);color:var(--red-tx)}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:.85rem}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:.85rem 1rem}
+.stat-lbl{font-size:11px;color:var(--muted);font-weight:500;margin-bottom:4px}
+.stat-val{font-size:22px;font-weight:700}
+.log-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.log-item{padding:11px 13px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:flex-start}
+.log-item:last-child{border-bottom:none}
+.log-l{flex:1;min-width:0}
+.log-bc{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log-pr{font-size:12px;color:var(--muted)}
+.log-mt{font-size:11px;color:var(--muted);margin-top:2px}
+.log-r{text-align:right;flex-shrink:0}
+.log-tot{font-size:14px;font-weight:700}
+.pb{font-size:11px;padding:2px 8px;border-radius:99px;display:inline-block;margin-top:3px;font-weight:500}
+.pb.ok{background:var(--teal-lt);color:var(--teal-tx)}
+.pb.err{background:var(--red-lt);color:var(--red-tx)}
+.log-empty{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:2.5rem 1rem;text-align:center;color:var(--muted);font-size:14px}
+.log-empty svg{width:32px;height:32px;stroke:currentColor;fill:none;stroke-width:1.5;opacity:.3;display:block;margin:0 auto 8px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hico">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="4" height="18" rx="1"/><rect x="9" y="3" width="2" height="18" rx="1"/><rect x="13" y="3" width="4" height="18" rx="1"/><rect x="19" y="3" width="2" height="18" rx="1"/></svg>
+  </div>
+  <div>
+    <h1>Barcode → Google Sheets</h1>
+    <p>Scan products &amp; log instantly</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- URL -->
+  <div class="card">
+    <div class="slabel">Google Apps Script Web App URL</div>
+    <div class="url-row">
+      <input type="url" id="webAppUrl" placeholder="https://script.google.com/macros/s/.../exec"/>
+      <button class="sbtn" onclick="saveUrl()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        Save
+      </button>
+    </div>
+    <div id="urlStatus" class="badge warn"><span class="dot"></span>URL not configured</div>
+  </div>
+
+  <!-- CAMERA -->
+  <div class="card">
+    <div class="slabel">Camera scanner</div>
+    <div class="scan-outer">
+      <div class="placeholder-screen" id="placeholder">
+        <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        Tap button below to start camera
+      </div>
+      <div id="interactive" style="display:none;width:100%;height:100%;position:absolute;top:0;left:0;"></div>
+      <div class="scan-overlay" id="scanOverlay" style="display:none">
+        <div class="scan-frame">
+          <div class="b3"></div><div class="b4"></div>
+          <div class="scanline"></div>
+        </div>
+        <div class="scan-tip">Hold steady · align barcode inside the box</div>
+      </div>
+    </div>
+    <button class="cam-btn start" id="camBtn" onclick="toggleCamera()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      Start camera scan
+    </button>
+    <div id="detBar" style="display:none" class="det-bar">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="4" height="18" rx="1"/><rect x="9" y="3" width="2" height="18" rx="1"/><rect x="13" y="3" width="4" height="18" rx="1"/><rect x="19" y="3" width="2" height="18" rx="1"/></svg>
+      <div>
+        <div class="det-code" id="detCode">—</div>
+        <div class="det-sub" id="detType">Barcode detected ✓</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FORM -->
+  <div class="card">
+    <div class="slabel">Entry details</div>
+    <div class="fgrid">
+
+      <div class="field full">
+        <label>Barcode <span class="req">*</span></label>
+        <input type="text" id="barcodeInput" placeholder="Auto-filled after scan, or type manually"/>
+        <span class="err-msg" id="err-barcode">Please scan or enter a barcode</span>
+      </div>
+
+      <div class="field full">
+        <label>Product name</label>
+        <input type="text" id="productName" placeholder="e.g. Nescafé Gold 200g (optional)"/>
+      </div>
+
+      <div class="field full">
+        <label>Customer name <span class="req">*</span></label>
+        <input type="text" id="customerName" list="customerList" placeholder="Select or type customer name" autocomplete="off"/>
+        <datalist id="customerList">
+          <option value="Sumon"/>
+          <option value="Juyel vai"/>
+          <option value="Amir vai"/>
+          <option value="Azmir telecom"/>
+          <option value="Jakir telecom"/>
+          <option value="SR Telecom"/>
+          <option value="Jim telecom"/>
+          <option value="Sazzad vai"/>
+          <option value="Rafi telecom"/>
+          <option value="Rahat studio"/>
+          <option value="Ripon roy"/>
+          <option value="Rasel vai"/>
+          <option value="Sami electric"/>
+          <option value="Iablu vai"/>
+          <option value="Mahmud vai"/>
+          <option value="Adorsho computer"/>
+          <option value="Somon vai"/>
+          <option value="Akondo electric"/>
+          <option value="Janu fuysal"/>
+          <option value="Hira vai"/>
+          <option value="Saju vai"/>
+          <option value="Eamin telecom"/>
+          <option value="Ashik telecom"/>
+          <option value="Sofikul"/>
+          <option value="Shahin electric"/>
+          <option value="Julhas vai"/>
+          <option value="Shamim vai"/>
+          <option value="Joynal abedin"/>
+          <option value="Teba media"/>
+          <option value="Asadul vai"/>
+          <option value="Ridou telecom"/>
+          <option value="Modina telecom"/>
+          <option value="Dipto electric"/>
+          <option value="SL electric"/>
+        </datalist>
+        <span class="err-msg" id="err-customer">Please enter customer name</span>
+      </div>
+
+      <div class="field full">
+        <label>Selling agent <span class="req">*</span></label>
+        <input type="text" id="sellingAgent" placeholder="Enter selling agent name"/>
+        <span class="err-msg" id="err-agent">Please enter selling agent name</span>
+      </div>
+
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="entryDate"/>
+      </div>
+
+      <div class="field">
+        <label>Time</label>
+        <input type="time" id="entryTime"/>
+      </div>
+
+      <div class="field">
+        <label>Quantity <span class="req">*</span></label>
+        <input type="number" id="quantity" value="1" min="1" step="1" oninput="calcTotal()"/>
+      </div>
+
+      <div class="field">
+        <label>Unit price (৳) <span class="req">*</span></label>
+        <input type="number" id="unitPrice" placeholder="0.00" min="0" step="0.01" oninput="calcTotal()"/>
+        <span class="err-msg" id="err-price">Please enter unit price</span>
+      </div>
+
+      <div class="field full">
+        <div class="total-row">
+          <span class="total-lbl">
+            <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            Total price
+          </span>
+          <span class="total-val" id="totalPrice">৳ 0.00</span>
+        </div>
+      </div>
+
+    </div>
+    <button class="submit" id="submitBtn" onclick="submitEntry()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      Send to Google Sheets
+    </button>
+    <div class="toast-area"><div id="toastMsg"></div></div>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats" id="statsRow" style="display:none">
+    <div class="stat"><div class="stat-lbl">Total entries</div><div class="stat-val" id="statCount">0</div></div>
+    <div class="stat"><div class="stat-lbl">Total value (৳)</div><div class="stat-val" id="statTotal">0.00</div></div>
+  </div>
+
+  <!-- LOG -->
+  <div class="slabel" style="margin-bottom:.6rem">Session log</div>
+  <div id="logContainer" class="log-empty">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    No entries yet — scan a product to begin
+  </div>
+
+</div>
+
+<!-- Quagga2 from jsDelivr CDN (works on GitHub Pages HTTPS) -->
+<script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
+<script>
+const pad = n => String(n).padStart(2,'0');
+let scanning = false, entries = [], lastCode = '', lastTime = 0;
+
+/* DATE/TIME */
+function setDateTime(){
+  const d = new Date();
+  document.getElementById('entryDate').value = d.toISOString().split('T')[0];
+  document.getElementById('entryTime').value = pad(d.getHours())+':'+pad(d.getMinutes());
+}
+
+/* URL */
+function saveUrl(){
+  const url = document.getElementById('webAppUrl').value.trim();
+  if(!url.startsWith('https://script.google.com')){showToast('Please enter a valid Apps Script URL','error');return;}
+  localStorage.setItem('gasUrl', url);
+  updateBadge(true);
+  showToast('URL saved!','success');
+}
+function updateBadge(ok){
+  const el = document.getElementById('urlStatus');
+  el.className='badge '+(ok?'ok':'warn');
+  el.innerHTML='<span class="dot"></span>'+(ok?'URL configured ✓':'URL not configured');
+}
+
+/* CAMERA */
+function toggleCamera(){
+  if(scanning){stopCamera();}else{startCamera();}
+}
+
+function startCamera(){
+  const btn = document.getElementById('camBtn');
+  btn.innerHTML='⏳ Starting camera…';
+  btn.disabled=true;
+
+  document.getElementById('placeholder').style.display='none';
+  const interactive = document.getElementById('interactive');
+  interactive.style.display='block';
+  interactive.innerHTML=''; // clear previous instances
+
+  Quagga.init({
+    inputStream:{
+      name:'Live',
+      type:'LiveStream',
+      target: interactive,
+      constraints:{
+        facingMode:'environment',
+        width:{min:640, ideal:1280, max:1920},
+        height:{min:480, ideal:720, max:1080},
+        aspectRatio:{ideal:1.333}
+      },
+      area:{ top:"10%", right:"10%", left:"10%", bottom:"10%" }
+    },
+    locator:{patchSize:'medium', halfSample:true},
+    numOfWorkers: (navigator.hardwareConcurrency || 4) > 2 ? 2 : 1,
+    frequency:10,
+    decoder:{
+      readers:[
+        'ean_reader','ean_8_reader','code_128_reader',
+        'code_39_reader','upc_reader','upc_e_reader',
+        'codabar_reader','i2of5_reader','code_93_reader'
+      ],
+      multiple: false
+    },
+    locate:true
+  }, function(err){
+    if(err){
+      console.error('Quagga init error:', err);
+      showToast('Camera error: '+(err.message||err),'error');
+      document.getElementById('placeholder').style.display='flex';
+      interactive.style.display='none';
+      btn.innerHTML='📷 Start camera scan';
+      btn.className='cam-btn start';
+      btn.disabled=false;
+      return;
+    }
+    Quagga.start();
+    scanning=true;
+    document.getElementById('scanOverlay').style.display='flex';
+    btn.innerHTML='⏹ Stop camera';
+    btn.className='cam-btn stop';
+    btn.disabled=false;
+  });
+
+  Quagga.onDetected(function(result){
+    if(!result||!result.codeResult||!result.codeResult.code) return;
+    const code = result.codeResult.code;
+    const now = Date.now();
+    if(code===lastCode && now-lastTime<3000) return;
+
+    // confidence check — only accept high quality reads
+    const errors = result.codeResult.decodedCodes
+      .filter(x => x.error !== undefined)
+      .map(x => x.error);
+    if(errors.length){
+      const avgErr = errors.reduce((a,b)=>a+b,0)/errors.length;
+      if(avgErr > 0.20) return; // skip low confidence reads
+    }
+
+    lastCode=code; lastTime=now;
+    onDetected(code, result.codeResult.format);
+  });
+}
+
+function stopCamera(){
+  try{
+    Quagga.stop();
+    Quagga.offDetected();
+  }catch(e){}
+  scanning=false;
+  document.getElementById('scanOverlay').style.display='none';
+  document.getElementById('interactive').style.display='none';
+  document.getElementById('placeholder').style.display='flex';
+  const btn=document.getElementById('camBtn');
+  btn.innerHTML='📷 Start camera scan';
+  btn.className='cam-btn start';
+  btn.disabled=false;
+}
+
+function onDetected(code, format){
+  stopCamera();
+  document.getElementById('detBar').style.display='flex';
+  document.getElementById('detCode').textContent=code;
+  document.getElementById('detType').textContent=(format||'Barcode')+' detected ✓';
+  document.getElementById('barcodeInput').value=code;
+  clearErr('barcode');
+  setDateTime();
+  if(navigator.vibrate) navigator.vibrate([100,50,100]);
+  showToast('✓ Barcode detected!','success');
+  document.getElementById('customerName').focus();
+}
+
+/* TOTAL */
+function calcTotal(){
+  const qty=parseFloat(document.getElementById('quantity').value)||0;
+  const price=parseFloat(document.getElementById('unitPrice').value)||0;
+  document.getElementById('totalPrice').textContent='৳ '+(qty*price).toFixed(2);
+}
+
+/* VALIDATION */
+function showErr(field){ document.getElementById('err-'+field).classList.add('show'); document.getElementById(field==='barcode'?'barcodeInput':field==='customer'?'customerName':field==='agent'?'sellingAgent':'unitPrice').classList.add('error'); }
+function clearErr(field){ const m=document.getElementById('err-'+field); if(m) m.classList.remove('show'); const inputs={barcode:'barcodeInput',customer:'customerName',agent:'sellingAgent',price:'unitPrice'}; const el=document.getElementById(inputs[field]); if(el) el.classList.remove('error'); }
+
+/* SUBMIT */
+async function submitEntry(){
+  const url=localStorage.getItem('gasUrl');
+  if(!url){showToast('Configure your Apps Script URL first','error');return;}
+
+  const barcode=document.getElementById('barcodeInput').value.trim();
+  const product=document.getElementById('productName').value.trim();
+  const customer=document.getElementById('customerName').value.trim();
+  const agent=document.getElementById('sellingAgent').value.trim();
+  const date=document.getElementById('entryDate').value;
+  const time=document.getElementById('entryTime').value;
+  const qty=parseFloat(document.getElementById('quantity').value)||0;
+  const unitPrice=parseFloat(document.getElementById('unitPrice').value)||0;
+  const total=qty*unitPrice;
+
+  // Validate required fields
+  let valid=true;
+  if(!barcode){showErr('barcode');valid=false;}else clearErr('barcode');
+  if(!customer){showErr('customer');valid=false;}else clearErr('customer');
+  if(!agent){showErr('agent');valid=false;}else clearErr('agent');
+  if(unitPrice<=0){showErr('price');valid=false;}else clearErr('price');
+  if(!valid){showToast('Please fill all required fields','error');return;}
+
+  const btn=document.getElementById('submitBtn');
+  btn.disabled=true;
+  btn.innerHTML='⏳ Sending…';
+
+  const payload={barcode,product,customer,agent,date,time,qty,unitPrice:unitPrice.toFixed(2),total:total.toFixed(2)};
+  let status='sent';
+  try{
+    await fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    showToast('✓ Logged to Google Sheets!','success');
+  }catch(e){
+    status='error';
+    showToast('Network error — check URL & connection','error');
+  }
+
+  entries.unshift({...payload,status});
+  renderLog();renderStats();
+
+  if(status==='sent'){
+    document.getElementById('barcodeInput').value='';
+    document.getElementById('productName').value='';
+    document.getElementById('customerName').value='';
+    document.getElementById('sellingAgent').value='';
+    document.getElementById('detBar').style.display='none';
+    document.getElementById('quantity').value='1';
+    document.getElementById('unitPrice').value='';
+    document.getElementById('totalPrice').textContent='৳ 0.00';
+    lastCode='';setDateTime();
+  }
+  btn.disabled=false;
+  btn.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Send to Google Sheets';
+}
+
+/* LOG */
+function renderLog(){
+  const c=document.getElementById('logContainer');
+  if(!entries.length){
+    c.className='log-empty';
+    c.innerHTML='<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>No entries yet — scan a product to begin';
+    return;
+  }
+  c.className='log-wrap';
+  c.innerHTML=entries.map(e=>`
+    <div class="log-item">
+      <div class="log-l">
+        <div class="log-bc">${e.barcode}</div>
+        <div class="log-pr">${e.product||''} ${e.customer?'· 👤 '+e.customer:''} ${e.agent?'· 🧑‍💼 '+e.agent:''}</div>
+        <div class="log-mt">${e.date} · ${e.time} · qty ${e.qty} · ৳${e.unitPrice} each</div>
+      </div>
+      <div class="log-r">
+        <div class="log-tot">৳${e.total}</div>
+        <span class="pb ${e.status==='sent'?'ok':'err'}">${e.status==='sent'?'Sent ✓':'Error ✗'}</span>
+      </div>
+    </div>`).join('');
+}
+
+function renderStats(){
+  if(!entries.length) return;
+  document.getElementById('statsRow').style.display='grid';
+  document.getElementById('statCount').textContent=entries.length;
+  const t=entries.reduce((s,e)=>s+parseFloat(e.total),0);
+  document.getElementById('statTotal').textContent=t.toFixed(2);
+}
+
+/* TOAST */
+function showToast(msg,type){
+  const el=document.getElementById('toastMsg');
+  el.className='tmsg '+type;
+  el.textContent=msg;
+  clearTimeout(el._t);
+  el._t=setTimeout(()=>{el.textContent='';el.className='';},3500);
+}
+
+/* INIT */
+const saved=localStorage.getItem('gasUrl');
+if(saved){document.getElementById('webAppUrl').value=saved;updateBadge(true);}
+setDateTime();
+setInterval(setDateTime,30000);
+</script>
+</body>
+</html>
